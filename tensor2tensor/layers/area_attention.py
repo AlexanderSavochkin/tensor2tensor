@@ -22,9 +22,10 @@ import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_layers
 import tensorflow.compat.v1 as tf
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 
-def lengths_to_area_mask(feature_length, length, max_area_size):
+def lengths_to_area_mask(feature_length: tf.Tensor, length: int, max_area_size: int) -> tf.Tensor:
   """Generates a non-padding mask for areas based on lengths.
 
   Args:
@@ -44,8 +45,9 @@ def lengths_to_area_mask(feature_length, length, max_area_size):
   return mask
 
 
-def _pool_one_shape(features_2d, area_width, area_height, batch_size,
-                    width, height, depth, fn=tf.reduce_max, name=None):
+def _pool_one_shape(features_2d: tf.Tensor, area_width: int, area_height: int, batch_size: int,
+                    width: int, height: int, depth: int, fn: Callable = tf.reduce_max,
+                    name: Optional[str] = None) -> tf.Tensor:
   """Pools for an area in features_2d.
 
   Args:
@@ -75,8 +77,8 @@ def _pool_one_shape(features_2d, area_width, area_height, batch_size,
   return max_tensor
 
 
-def basic_pool(features, max_area_width, max_area_height=1, height=1,
-               fn=tf.reduce_max, name=None):
+def basic_pool(features: tf.Tensor, max_area_width: int, max_area_height: int = 1, height: int = 1,
+               fn: Callable = tf.reduce_max, name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
   """Pools for each area based on a given pooling function (fn).
 
   Args:
@@ -128,8 +130,8 @@ def basic_pool(features, max_area_width, max_area_height=1, height=1,
   return pool_results, area_heights, area_widths
 
 
-def _compute_sum_image(features, max_area_width, max_area_height=1, height=1,
-                       name=None):
+def _compute_sum_image(features: tf.Tensor, max_area_width: int, max_area_height: int = 1,
+                       height: int = 1, name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes area sums for features.
 
   Args:
@@ -196,8 +198,8 @@ def _compute_sum_image(features, max_area_width, max_area_height=1, height=1,
   return sum_image, area_heights, area_widths
 
 
-def compute_area_features(features, max_area_width, max_area_height=1, height=1,
-                          epsilon=1e-6):
+def compute_area_features(features: tf.Tensor, max_area_width: int, max_area_height: int = 1,
+                          height: int = 1, epsilon: float = 1e-6) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes features for each area.
 
   Args:
@@ -231,8 +233,9 @@ def compute_area_features(features, max_area_width, max_area_height=1, height=1,
     return area_mean, area_std, area_sum, area_heights, area_widths
 
 
-def compute_area_key(features, max_area_width, max_area_height=1, height=1,
-                     mode="mean", training=True, name=None):
+def compute_area_key(features: tf.Tensor, max_area_width: int, max_area_height: int = 1,
+                     height: int = 1, mode: str = "mean", training: bool = True,
+                     name: Optional[str] = None) -> tf.Tensor:
   """Computes the key for each area.
 
   Args:
@@ -302,24 +305,24 @@ def compute_area_key(features, max_area_width, max_area_height=1, height=1,
     return area_key
 
 
-def dot_product_area_attention(q,
-                               k,
-                               v,
-                               bias,
-                               dropout_rate=0.0,
-                               image_shapes=None,
-                               name=None,
-                               attention_image_summary=None,
-                               save_weights_to=None,
-                               dropout_broadcast_dims=None,
-                               max_area_width=1,
-                               max_area_height=1,
-                               memory_height=1,
-                               area_key_mode="mean",
-                               area_value_mode="sum",
-                               top_k_areas=0,
-                               area_temperature=1.0,
-                               training=True):
+def dot_product_area_attention(q: tf.Tensor,
+                               k: tf.Tensor,
+                               v: tf.Tensor,
+                               bias: Optional[tf.Tensor],
+                               dropout_rate: float = 0.0,
+                               image_shapes: Optional[Tuple[int, ...]] = None,
+                               name: Optional[str] = None,
+                               attention_image_summary: Optional[Callable] = None,
+                               save_weights_to: Optional[Dict[str, tf.Tensor]] = None,
+                               dropout_broadcast_dims: Optional[List[int]] = None,
+                               max_area_width: int = 1,
+                               max_area_height: int = 1,
+                               memory_height: int = 1,
+                               area_key_mode: str = "mean",
+                               area_value_mode: str = "sum",
+                               top_k_areas: int = 0,
+                               area_temperature: float = 1.0,
+                               training: bool = True) -> tf.Tensor:
   """Dot-product area attention.
 
   Args:
