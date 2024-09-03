@@ -932,9 +932,15 @@ class Transformer(t2t_model.T2TModel):
         ret["outputs"] = ret["outputs"][:, :, partial_targets_length:]
     return ret
 
-def _init_transformer_cache(cache, hparams, batch_size, attention_init_length,
-                            encoder_output, encoder_decoder_attention_bias,
-                            scope_prefix):
+def _init_transformer_cache(
+    cache: Optional[Dict[str, Any]],
+    hparams: Any,
+    batch_size: int,
+    attention_init_length: int,
+    encoder_output: Optional[tf.Tensor],
+    encoder_decoder_attention_bias: Optional[tf.Tensor],
+    scope_prefix: str
+) -> Dict[str, Any]:
   """Create the initial cache for Transformer fast decoding."""
   key_channels = hparams.attention_key_channels or hparams.hidden_size
   value_channels = hparams.attention_value_channels or hparams.hidden_size
@@ -994,25 +1000,26 @@ def _init_transformer_cache(cache, hparams, batch_size, attention_init_length,
     cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
   return cache
 
-
-def fast_decode_tpu(encoder_output,
-                    encoder_decoder_attention_bias,
-                    symbols_to_logits_fn,
-                    hparams,
-                    decode_length,
-                    vocab_size,
-                    init_cache_fn=_init_transformer_cache,
-                    beam_size=1,
-                    top_beams=1,
-                    alpha=1.0,
-                    sos_id=0,
-                    eos_id=beam_search.EOS_ID,
-                    batch_size=None,
-                    force_decode_length=False,
-                    scope_prefix="body/",
-                    use_top_k_with_unique=True,
-                    sampling_temperature=0.0,
-                    top_k=-1):
+def fast_decode_tpu(
+    encoder_output: Optional[tf.Tensor],
+    encoder_decoder_attention_bias: Optional[tf.Tensor],
+    symbols_to_logits_fn: Callable[[tf.Tensor, int, Dict[str, Any]], Tuple[tf.Tensor, Dict[str, Any]]],
+    hparams: Any,
+    decode_length: int,
+    vocab_size: int,
+    init_cache_fn: Callable[..., Dict[str, Any]] = _init_transformer_cache,
+    beam_size: int = 1,
+    top_beams: int = 1,
+    alpha: float = 1.0,
+    sos_id: int = 0,
+    eos_id: int = beam_search.EOS_ID,
+    batch_size: Optional[int] = None,
+    force_decode_length: bool = False,
+    scope_prefix: str = "body/",
+    use_top_k_with_unique: bool = True,
+    sampling_temperature: float = 0.0,
+    top_k: int = -1
+) -> Dict[str, tf.Tensor]:
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding for TPU, uses beam search iff
@@ -1095,7 +1102,14 @@ def fast_decode_tpu(encoder_output,
       scores = scores[:, :top_beams]
   else:  # Greedy
 
-    def inner_loop(i, hit_eos, next_id, decoded_ids, cache, log_prob):
+    def inner_loop(
+        i: tf.Tensor,
+        hit_eos: tf.Tensor,
+        next_id: tf.Tensor,
+        decoded_ids: tf.Tensor,
+        cache: Dict[str, Any],
+        log_prob: tf.Tensor
+    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor, Dict[str, Any], tf.Tensor]:
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
@@ -1125,7 +1139,11 @@ def fast_decode_tpu(encoder_output,
       decoded_ids = tf.transpose(decoded_ids)
       return i + 1, hit_eos, next_id, decoded_ids, cache, log_prob
 
-    def is_not_finished(i, hit_eos, *_):
+    def is_not_finished(
+        i: tf.Tensor,
+        hit_eos: tf.Tensor,
+        *_: Any
+    ) -> tf.Tensor:
       finished = i >= decode_length
       if not force_decode_length:
         finished |= tf.reduce_all(hit_eos)
@@ -1136,7 +1154,7 @@ def fast_decode_tpu(encoder_output,
     next_id = sos_id * tf.ones([batch_size, 1], dtype=tf.int64)
     initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
 
-    def compute_cache_shape_invariants(tensor):
+    def compute_cache_shape_invariants(tensor: tf.Tensor) -> tf.TensorShape:
       return tf.TensorShape(tensor.shape.as_list())
 
     _, _, _, decoded_ids, _, log_prob = tf.while_loop(
@@ -1157,25 +1175,24 @@ def fast_decode_tpu(encoder_output,
 
   return {"outputs": decoded_ids, "scores": scores}
 
-
-def fast_decode(encoder_output,
-                encoder_decoder_attention_bias,
-                symbols_to_logits_fn,
-                hparams,
-                decode_length,
-                vocab_size,
-                init_cache_fn=_init_transformer_cache,
-                beam_size=1,
-                top_beams=1,
-                alpha=1.0,
-                sos_id=0,
-                eos_id=beam_search.EOS_ID,
-                batch_size=None,
-                force_decode_length=False,
-                scope_prefix="body/",
-                sampling_temperature=0.0,
-                top_k=-1,
-                cache=None):
+def fast_decode(encoder_output: Optional[tf.Tensor],
+                encoder_decoder_attention_bias: tf.Tensor,
+                symbols_to_logits_fn: Callable[[tf.Tensor, int, Dict[str, tf.Tensor]], Tuple[tf.Tensor, Dict[str, tf.Tensor]]],
+                hparams: Any,
+                decode_length: int,
+                vocab_size: int,
+                init_cache_fn: Callable[..., Dict[str, tf.Tensor]] = _init_transformer_cache,
+                beam_size: int = 1,
+                top_beams: int = 1,
+                alpha: float = 1.0,
+                sos_id: int = 0,
+                eos_id: int = beam_search.EOS_ID,
+                batch_size: Optional[int] = None,
+                force_decode_length: bool = False,
+                scope_prefix: str = "body/",
+                sampling_temperature: float = 0.0,
+                top_k: int = -1,
+                cache: Optional[Dict[str, tf.Tensor]] = None) -> Dict[str, tf.Tensor]:
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding, uses beam search iff
@@ -1247,7 +1264,7 @@ def fast_decode(encoder_output,
       scores = scores[:, :top_beams]
   else:  # Greedy
 
-    def inner_loop(i, hit_eos, next_id, decoded_ids, cache, log_prob):
+    def inner_loop(i: tf.Tensor, hit_eos: tf.Tensor, next_id: tf.Tensor, decoded_ids: tf.Tensor, cache: Dict[str, tf.Tensor], log_prob: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor, Dict[str, tf.Tensor], tf.Tensor]:
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
@@ -1275,7 +1292,7 @@ def fast_decode(encoder_output,
 
       return i + 1, hit_eos, next_id, decoded_ids, cache, log_prob
 
-    def is_not_finished(i, hit_eos, *_):
+    def is_not_finished(i: tf.Tensor, hit_eos: tf.Tensor, *_) -> tf.Tensor:
       finished = i >= decode_length
       if not force_decode_length:
         finished |= tf.reduce_all(hit_eos)
@@ -1317,12 +1334,12 @@ class TransformerScorer(Transformer):
     self._base_name = "transformer"
 
   def infer(self,
-            features=None,
-            decode_length=50,
-            beam_size=1,
-            top_beams=1,
-            alpha=0.0,
-            use_tpu=False):
+            features: Optional[Dict[str, tf.Tensor]] = None,
+            decode_length: int = 50,
+            beam_size: int = 1,
+            top_beams: int = 1,
+            alpha: float = 0.0,
+            use_tpu: bool = False) -> Dict[str, tf.Tensor]:
     """Returns the targets and their log probabilities."""
     del decode_length, beam_size, top_beams, alpha, use_tpu
     assert features is not None
@@ -1354,7 +1371,7 @@ class TransformerScorer(Transformer):
 class TransformerEncoder(t2t_model.T2TModel):
   """Transformer, encoder only."""
 
-  def body(self, features):
+  def body(self, features: Dict[str, tf.Tensor]) -> tf.Tensor:
     hparams = self._hparams
     inputs = features["inputs"]
     target_space = features["target_space_id"]
@@ -1383,7 +1400,7 @@ class TransformerRegressor(TransformerEncoder):
   Final result is a tensor that has a shape of (?, 1, 1, 1).
   """
 
-  def top(self, body_output, features):
+  def top(self, body_output: tf.Tensor, features: Dict[str, tf.Tensor]) -> tf.Tensor:
     """Computes single scalar value from body_output."""
 
     with tf.variable_scope("reg_top_ffn"):
@@ -1393,14 +1410,14 @@ class TransformerRegressor(TransformerEncoder):
       return res
 
 
-def features_to_nonpadding(features, inputs_or_targets="inputs"):
+def features_to_nonpadding(features: Dict[str, tf.Tensor], inputs_or_targets: str = "inputs") -> Optional[tf.Tensor]:
   key = inputs_or_targets + "_segmentation"
   if features and key in features:
     return tf.minimum(tf.to_float(features[key]), 1.0)
   return None
 
 
-def transformer_prepare_decoder(targets, hparams, features=None, pad=None):
+def transformer_prepare_decoder(targets: tf.Tensor, hparams: Any, features: Optional[Dict[str, tf.Tensor]] = None, pad: Optional[tf.Tensor] = None) -> Tuple[tf.Tensor, tf.Tensor]:
   """Prepare one shard of the model for the decoder.
 
   Args:
@@ -1461,20 +1478,19 @@ def transformer_prepare_decoder(targets, hparams, features=None, pad=None):
                                           tf.bfloat16)
   return (decoder_input, decoder_self_attention_bias)
 
-
-def transformer_self_attention_layer(decoder_input,
-                                     decoder_self_attention_bias,
-                                     layer_idx,
-                                     hparams,
-                                     encoder_output=None,
-                                     encoder_decoder_attention_bias=None,
-                                     cache=None,
-                                     decode_loop_step=None,
-                                     save_weights_to=None,
-                                     make_image_summary=False,
-                                     layer_collection=None,
-                                     recurrent_memory_by_layer=None,
-                                     chunk_number=None):
+def transformer_self_attention_layer(decoder_input: tf.Tensor,
+                                     decoder_self_attention_bias: tf.Tensor,
+                                     layer_idx: int,
+                                     hparams: tf.contrib.training.HParams,
+                                     encoder_output: Optional[tf.Tensor] = None,
+                                     encoder_decoder_attention_bias: Optional[tf.Tensor] = None,
+                                     cache: Optional[Dict[str, Any]] = None,
+                                     decode_loop_step: Optional[int] = None,
+                                     save_weights_to: Optional[Dict[str, tf.Tensor]] = None,
+                                     make_image_summary: bool = False,
+                                     layer_collection: Optional[Any] = None,
+                                     recurrent_memory_by_layer: Optional[Dict[str, Any]] = None,
+                                     chunk_number: Optional[tf.Tensor] = None) -> Tuple[tf.Tensor, Optional[Dict[str, Any]]]:
   """A single transformer self-attention layer."""
   x = decoder_input
   layer = layer_idx
@@ -1580,21 +1596,21 @@ def transformer_self_attention_layer(decoder_input,
     return x, layer_cache
 
 
-def transformer_decoder_layer(decoder_input,
-                              decoder_self_attention_bias,
-                              layer_idx,
-                              hparams,
-                              encoder_output=None,
-                              encoder_decoder_attention_bias=None,
-                              cache=None,
-                              decode_loop_step=None,
-                              nonpadding=None,
-                              save_weights_to=None,
-                              make_image_summary=False,
-                              losses=None,
-                              layer_collection=None,
-                              recurrent_memory_by_layer=None,
-                              chunk_number=None):
+def transformer_decoder_layer(decoder_input: tf.Tensor,
+                              decoder_self_attention_bias: tf.Tensor,
+                              layer_idx: int,
+                              hparams: tf.contrib.training.HParams,
+                              encoder_output: Optional[tf.Tensor] = None,
+                              encoder_decoder_attention_bias: Optional[tf.Tensor] = None,
+                              cache: Optional[Dict[str, Any]] = None,
+                              decode_loop_step: Optional[int] = None,
+                              nonpadding: Optional[tf.Tensor] = None,
+                              save_weights_to: Optional[Dict[str, tf.Tensor]] = None,
+                              make_image_summary: bool = False,
+                              losses: Optional[List[tf.Tensor]] = None,
+                              layer_collection: Optional[Any] = None,
+                              recurrent_memory_by_layer: Optional[Dict[str, Any]] = None,
+                              chunk_number: Optional[tf.Tensor] = None) -> tf.Tensor:
   """A single transformer decoder layer."""
   x, layer_cache = transformer_self_attention_layer(
       decoder_input=decoder_input,
@@ -1629,21 +1645,21 @@ def transformer_decoder_layer(decoder_input,
       return x
 
 
-def transformer_decoder(decoder_input,
-                        encoder_output,
-                        decoder_self_attention_bias,
-                        encoder_decoder_attention_bias,
-                        hparams,
-                        cache=None,
-                        decode_loop_step=None,
-                        name="decoder",
-                        nonpadding=None,
-                        save_weights_to=None,
-                        make_image_summary=True,
-                        losses=None,
-                        layer_collection=None,
-                        recurrent_memory_by_layer=None,
-                        chunk_number=None):
+def transformer_decoder(decoder_input: tf.Tensor,
+                        encoder_output: tf.Tensor,
+                        decoder_self_attention_bias: tf.Tensor,
+                        encoder_decoder_attention_bias: tf.Tensor,
+                        hparams: tf.contrib.training.HParams,
+                        cache: Optional[Dict[str, Any]] = None,
+                        decode_loop_step: Optional[int] = None,
+                        name: str = "decoder",
+                        nonpadding: Optional[tf.Tensor] = None,
+                        save_weights_to: Optional[Dict[str, tf.Tensor]] = None,
+                        make_image_summary: bool = True,
+                        losses: Optional[List[tf.Tensor]] = None,
+                        layer_collection: Optional[Any] = None,
+                        recurrent_memory_by_layer: Optional[Dict[str, Any]] = None,
+                        chunk_number: Optional[tf.Tensor] = None) -> tf.Tensor:
   """A stack of transformer layers.
 
   Args:
