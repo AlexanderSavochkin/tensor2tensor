@@ -55,9 +55,15 @@ transformer_encoder = transformer_layers.transformer_encoder
 transformer_ffn_layer = transformer_layers.transformer_ffn_layer
 
 
-def transformer_encode(encoder_function, inputs, target_space, hparams,
-                       attention_weights=None, features=None, losses=None,
-                       prepare_encoder_fn=None, **kwargs):
+def transformer_encode(encoder_function: callable,
+                       inputs: tf.Tensor,
+                       target_space: tf.Tensor,
+                       hparams: tf.contrib.training.HParams,
+                       attention_weights: dict = None,
+                       features: dict = None,
+                       losses: list = None,
+                       prepare_encoder_fn: callable = None,
+                       **kwargs) -> tuple:
   """Encode transformer inputs.
 
   Args:
@@ -115,18 +121,18 @@ def transformer_encode(encoder_function, inputs, target_space, hparams,
   return encoder_output, encoder_decoder_attention_bias
 
 
-def transformer_decode(decoder_function,
-                       decoder_input,
-                       encoder_output,
-                       encoder_decoder_attention_bias,
-                       decoder_self_attention_bias,
-                       hparams,
-                       attention_weights=None,
-                       cache=None,
-                       decode_loop_step=None,
-                       nonpadding=None,
-                       losses=None,
-                       **kwargs):
+def transformer_decode(decoder_function: callable,
+                       decoder_input: tf.Tensor,
+                       encoder_output: tf.Tensor,
+                       encoder_decoder_attention_bias: tf.Tensor,
+                       decoder_self_attention_bias: tf.Tensor,
+                       hparams: tf.contrib.training.HParams,
+                       attention_weights: dict = None,
+                       cache: dict = None,
+                       decode_loop_step: tf.Tensor = None,
+                       nonpadding: tf.Tensor = None,
+                       losses: list = None,
+                       **kwargs) -> tf.Tensor:
   """Decode Transformer outputs from encoder representation.
 
   Args:
@@ -196,7 +202,7 @@ class Transformer(t2t_model.T2TModel):
     self._prepare_encoder_fn = transformer_prepare_encoder
     self._prepare_decoder_fn = transformer_prepare_decoder
 
-  def encode(self, inputs, target_space, hparams, features=None, losses=None):
+  def encode(self, inputs: tf.Tensor, target_space: tf.Tensor, hparams: tf.contrib.training.HParams, features: dict = None, losses: list = None) -> tuple:
     """Encode transformer inputs, see transformer_encode."""
     return transformer_encode(
         self._encoder_function, inputs, target_space, hparams,
@@ -205,16 +211,16 @@ class Transformer(t2t_model.T2TModel):
         prepare_encoder_fn=self._prepare_encoder_fn)
 
   def decode(self,
-             decoder_input,
-             encoder_output,
-             encoder_decoder_attention_bias,
-             decoder_self_attention_bias,
-             hparams,
-             cache=None,
-             decode_loop_step=None,
-             nonpadding=None,
-             losses=None,
-             **kwargs):
+             decoder_input: tf.Tensor,
+             encoder_output: tf.Tensor,
+             encoder_decoder_attention_bias: tf.Tensor,
+             decoder_self_attention_bias: tf.Tensor,
+             hparams: tf.contrib.training.HParams,
+             cache: dict = None,
+             decode_loop_step: tf.Tensor = None,
+             nonpadding: tf.Tensor = None,
+             losses: list = None,
+             **kwargs) -> tf.Tensor:
     """Decode Transformer outputs, see transformer_decode."""
     return transformer_decode(
         self._decoder_function, decoder_input, encoder_output,
@@ -223,7 +229,7 @@ class Transformer(t2t_model.T2TModel):
         decode_loop_step=decode_loop_step, nonpadding=nonpadding, losses=losses,
         **kwargs)
 
-  def body(self, features):
+  def body(self, features: dict) -> tf.Tensor:
     """Transformer main model_fn.
 
     Args:
@@ -299,7 +305,7 @@ class Transformer(t2t_model.T2TModel):
     else:
       return ret
 
-  def _prepare_inputs_for_body(self, features):
+  def _prepare_inputs_for_body(self, features: dict) -> tf.Tensor:
     """Prepare inputs for body.
 
     Args:
@@ -313,7 +319,7 @@ class Transformer(t2t_model.T2TModel):
     """
     return features["inputs"]
 
-  def _greedy_infer(self, features, decode_length, use_tpu=False):
+  def _greedy_infer(self, features: dict, decode_length: int, use_tpu: bool = False) -> dict:
     """Fast version of greedy decoding.
 
     Args:
@@ -343,12 +349,12 @@ class Transformer(t2t_model.T2TModel):
       return self._fast_decode(features, decode_length)
 
   def _beam_decode(self,
-                   features,
-                   decode_length,
-                   beam_size,
-                   top_beams,
-                   alpha,
-                   use_tpu=False):
+                   features: Dict[str, tf.Tensor],
+                   decode_length: int,
+                   beam_size: int,
+                   top_beams: int,
+                   alpha: float,
+                   use_tpu: bool = False) -> Dict[str, tf.Tensor]:
     """Beam search decoding.
 
     Args:
@@ -383,7 +389,7 @@ class Transformer(t2t_model.T2TModel):
       return self._fast_decode(features, decode_length, beam_size, top_beams,
                                alpha)
 
-  def _prepare_inputs_for_decode(self, features):
+  def _prepare_inputs_for_decode(self, features: Dict[str, tf.Tensor]) -> tf.Tensor:
     """Prepare inputs for decoding.
 
     Args:
@@ -417,11 +423,11 @@ class Transformer(t2t_model.T2TModel):
     return inputs
 
   def _fast_decode_tpu(self,
-                       features,
-                       decode_length,
-                       beam_size=1,
-                       top_beams=1,
-                       alpha=1.0):
+                       features: Dict[str, tf.Tensor],
+                       decode_length: int,
+                       beam_size: int = 1,
+                       top_beams: int = 1,
+                       alpha: float = 1.0) -> Dict[str, tf.Tensor]:
     """Fast decoding.
 
     Implements both greedy and beam search decoding on TPU, uses beam search
@@ -515,7 +521,7 @@ class Transformer(t2t_model.T2TModel):
     else:
       positional_encoding = None
 
-    def preprocess_targets(targets, i):
+    def preprocess_targets(targets: tf.Tensor, i: int) -> tf.Tensor:
       """Performs preprocessing steps on the targets to prepare for the decoder.
 
       This includes:
@@ -561,7 +567,7 @@ class Transformer(t2t_model.T2TModel):
       decoder_self_attention_bias += common_attention.attention_bias_proximal(
           decode_length)
 
-    def symbols_to_logits_tpu_fn(ids, i, cache):
+    def symbols_to_logits_tpu_fn(ids: tf.Tensor, i: int, cache: Dict[str, tf.Tensor]) -> Tuple[tf.Tensor, Dict[str, tf.Tensor]]:
       """Go from ids to logits for next symbol on TPU.
 
       Args:
@@ -652,7 +658,7 @@ class Transformer(t2t_model.T2TModel):
         ret["outputs"] = ret["outputs"][:, :, partial_targets_length:]
     return ret
 
-  def get_decode_start_id(self):
+  def get_decode_start_id(self) -> Optional[int]:
     """Returns the id of the first decoder input symbol.
 
     The default case maps None to a vector of 0's for transformer. This method
@@ -663,7 +669,7 @@ class Transformer(t2t_model.T2TModel):
     """
     return None
 
-  def get_decode_end_id(self):
+  def get_decode_end_id(self) -> Optional[int]:
     """Returns the id of the output symbol that terminates decoding.
 
     This method can be overridden by a different model. The id returned by this
@@ -672,12 +678,12 @@ class Transformer(t2t_model.T2TModel):
     return None
 
   def _fast_decode(self,
-                   features,
-                   decode_length,
-                   beam_size=1,
-                   top_beams=1,
-                   alpha=1.0,
-                   preprocess_targets_method=None):
+                   features: Dict[str, Any],
+                   decode_length: int,
+                   beam_size: int = 1,
+                   top_beams: int = 1,
+                   alpha: float = 1.0,
+                   preprocess_targets_method: Optional[Callable] = None) -> Dict[str, tf.Tensor]:
     """Fast decoding.
 
     Implements both greedy and beam search decoding, uses beam search iff
@@ -774,7 +780,7 @@ class Transformer(t2t_model.T2TModel):
     else:
       positional_encoding = None
 
-    def preprocess_targets(targets, i):
+    def preprocess_targets(targets: tf.Tensor, i: int) -> tf.Tensor:
       """Performs preprocessing steps on the targets to prepare for the decoder.
 
       This includes:
@@ -819,7 +825,7 @@ class Transformer(t2t_model.T2TModel):
           decode_length)
 
     # Create tensors for encoder-decoder attention history
-    att_cache = {"attention_history": {}}
+    att_cache: Dict[str, Dict[str, tf.Tensor]] = {"attention_history": {}}
     num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
     if encoder_output is not None:
       att_batch_size, enc_seq_length = common_layers.shape_list(
@@ -828,7 +834,7 @@ class Transformer(t2t_model.T2TModel):
         att_cache["attention_history"]["layer_%d" % layer] = tf.zeros(
             [att_batch_size, hparams.num_heads, 0, enc_seq_length])
 
-    def update_decoder_attention_history(cache):
+    def update_decoder_attention_history(cache: Dict[str, Any]) -> None:
       """Save attention weights in cache, e.g., for vizualization."""
       for k in [x for x in self.attention_weights
                 if "decoder" in x and "self" not in x and "logits" not in x]:
@@ -849,7 +855,7 @@ class Transformer(t2t_model.T2TModel):
     if not preprocess_targets_method:
       preprocess_targets_method = preprocess_targets
 
-    def symbols_to_logits_fn(ids, i, cache):
+    def symbols_to_logits_fn(ids: tf.Tensor, i: int, cache: Dict[str, Any]) -> Tuple[tf.Tensor, Dict[str, Any]]:
       """Go from ids to logits for next symbol."""
       ids = ids[:, -1:]
       targets = tf.expand_dims(tf.expand_dims(ids, axis=2), axis=3)
@@ -925,7 +931,6 @@ class Transformer(t2t_model.T2TModel):
       else:
         ret["outputs"] = ret["outputs"][:, :, partial_targets_length:]
     return ret
-
 
 def _init_transformer_cache(cache, hparams, batch_size, attention_init_length,
                             encoder_output, encoder_decoder_attention_bias,
