@@ -1563,26 +1563,26 @@ def _beam_decode(self,
     return model.estimator_spec_train(
         loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
 
-  def initialize_from_ckpt(self, ckpt_dir):
+  def initialize_from_ckpt(self, ckpt_dir: str) -> None:
     return initialize_from_ckpt(ckpt_dir=ckpt_dir, hparams=self._hparams)
 
-  def create_train_host_call(self):
+  def create_train_host_call(self) -> Tuple[Callable, Dict[str, tf.Tensor]]:
     return create_host_call(self.hparams.model_dir)
 
-  def create_eval_host_call(self):
+  def create_eval_host_call(self) -> Tuple[Callable, Dict[str, tf.Tensor]]:
     eval_dir = os.path.join(
         self.hparams.model_dir,
         self.hparams.get("eval_dir_name", "eval"))
     return create_host_call(eval_dir)
 
-  def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
+  def estimator_spec_train(self, loss: tf.Tensor, num_async_replicas: int = 1, use_tpu: bool = False) -> Union[tf_estimator.EstimatorSpec, contrib.tpu.TPUEstimatorSpec]:
     """Constructs `tf.estimator.EstimatorSpec` for TRAIN (training) mode."""
     train_op = self.optimize(loss, num_async_replicas=num_async_replicas,
                              use_tpu=use_tpu)
 
     if use_tpu:
       if self._hparams.warm_start_from:
-        def scaffold_fn():
+        def scaffold_fn() -> tf.train.Scaffold:
           self.initialize_from_ckpt(self._hparams.warm_start_from)
           return tf.train.Scaffold()
       else:
@@ -1614,7 +1614,7 @@ def _beam_decode(self,
       return tf_estimator.EstimatorSpec(
           tf_estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
 
-  def estimator_spec_eval(self, features, logits, labels, loss, losses_dict):
+  def estimator_spec_eval(self, features: Dict[str, tf.Tensor], logits: Union[tf.Tensor, Dict[str, tf.Tensor]], labels: tf.Tensor, loss: tf.Tensor, losses_dict: Dict[str, tf.Tensor]) -> Union[tf_estimator.EstimatorSpec, contrib.tpu.TPUEstimatorSpec]:
     """Constructs `tf.estimator.EstimatorSpec` for EVAL (evaluation) mode."""
     del losses_dict
     hparams = self.hparams
@@ -1707,7 +1707,7 @@ def _beam_decode(self,
           evaluation_hooks=evaluation_hooks,
           loss=loss)
 
-  def estimator_spec_predict(self, features, use_tpu=False):
+  def estimator_spec_predict(self, features: Dict[str, tf.Tensor], use_tpu: bool = False) -> Union[tf_estimator.EstimatorSpec, contrib.tpu.TPUEstimatorSpec]:
     """Constructs `tf.estimator.EstimatorSpec` for PREDICT (inference) mode."""
     decode_hparams = self._decode_hparams
     top_beams = decode_hparams.beam_size if decode_hparams.return_beams else 1
@@ -1793,7 +1793,7 @@ def _beam_decode(self,
           predictions=predictions,
           export_outputs=export_outputs)
 
-  def _normalize_body_output(self, body_out):
+  def _normalize_body_output(self, body_out: Union[Tuple[tf.Tensor, Union[tf.Tensor, List[tf.Tensor], Dict[str, tf.Tensor]]], tf.Tensor]) -> Tuple[tf.Tensor, Dict[str, tf.Tensor]]:
     if isinstance(body_out, tuple):
       output, losses = body_out
       if isinstance(losses, (list, tuple)):
@@ -1808,14 +1808,14 @@ def _beam_decode(self,
 
     return output, losses
 
-  def _summarize_losses(self, losses_dict):
+  def _summarize_losses(self, losses_dict: Dict[str, tf.Tensor]) -> None:
     """Adds `tf.summary`s to all terms in the losses dictionary."""
     if common_layers.should_generate_summaries():
       with tf.name_scope("losses"):
         for loss_name, loss_val in sorted(losses_dict.items()):
           tf.summary.scalar(loss_name, loss_val)
 
-  def maybe_scheduled_sampling(self, features, logits, losses):
+  def maybe_scheduled_sampling(self, features: Dict[str, tf.Tensor], logits: tf.Tensor, losses: Union[tf.Tensor, Tuple[tf.Tensor, tf.Tensor]]) -> Tuple[tf.Tensor, Dict[str, tf.Tensor]]:
     """Scheduled sampling.
 
     Performs forward inference again with "targets" feature replaced with values
@@ -1869,23 +1869,23 @@ def _beam_decode(self,
       return (logits, losses)
 
     # Pad vocabulary if vocab size must be evenly divisible by vocab_divisor.
-    vocab_size = problem_hparams.vocab_size["targets"]
+    vocab_size: int = problem_hparams.vocab_size["targets"]
     assert vocab_size is not None
     assert hparams.vocab_divisor == 1
 
     # TODO(duckworthd): Move to scheduled_sampling.py.
-    def sample(x):
+    def sample(x: tf.Tensor) -> tf.Tensor:
       """Multinomial sampling from a n-dimensional tensor."""
       samples = tf.multinomial(tf.reshape(x, [-1, vocab_size]), 1)
       reshaped_samples = tf.reshape(samples, common_layers.shape_list(x)[:-1])
       return tf.to_int32(reshaped_samples)
 
     # TODO(duckworthd): Move to scheduled_sampling.py.
-    def mix_gold_sampled(gold_targets,
-                         sampled_targets,
-                         mixin_prob,
-                         i,
-                         prev_new_targets):
+    def mix_gold_sampled(gold_targets: tf.Tensor,
+                         sampled_targets: tf.Tensor,
+                         mixin_prob: float,
+                         i: int,
+                         prev_new_targets: tf.Tensor) -> tf.Tensor:
       """Interleave sampled and gold tokens randomly."""
       # Resample each location iid.
       should_use_sampled_targets = tf.less(
@@ -1904,7 +1904,7 @@ def _beam_decode(self,
       return new_targets
 
     # TODO(duckworthd): Move to scheduled_sampling.py.
-    def is_later_timestep(x, pass_idx):
+    def is_later_timestep(x: tf.Tensor, pass_idx: int) -> tf.Tensor:
       """Constructs mask based on timestep."""
       assert x.shape.ndims == 4, x.shape
       x_shape = tf.shape(x)
@@ -1918,7 +1918,8 @@ def _beam_decode(self,
 
     # TODO(duckworthd): Move to scheduled_sampling.py.
     def parallel_scheduled_sampling_pass(
-        i, prev_new_targets, features, logits, mixin_prob):
+        i: int, prev_new_targets: tf.Tensor, features: Dict[str, tf.Tensor],
+        logits: tf.Tensor, mixin_prob: float) -> Tuple[tf.Tensor, tf.Tensor, Dict[str, tf.Tensor]]:
       """Generate scheduled sampling results."""
       sampled_targets = sample(logits)
       new_targets = mix_gold_sampled(features["targets"],
@@ -1972,7 +1973,7 @@ def _beam_decode(self,
 
       # Gradually increase over a warmup period. Lower numbers mean more gold
       # tokens.
-      mixin_prob = scheduled_sampling.inverse_decay_mix_prob(
+      mixin_prob: float = scheduled_sampling.inverse_decay_mix_prob(
           hparams.scheduled_sampling_warmup_schedule,
           hparams.scheduled_sampling_gold_mixin_prob,
           hparams.scheduled_sampling_warmup_steps)
@@ -1994,12 +1995,11 @@ def _beam_decode(self,
           "Unknown scheduled_sampling_method = %s" % (
               hparams.scheduled_sampling_method,))
 
+def _with_timing(fn: Callable[..., Any], msg: str, silent: bool = False) -> Callable[..., Any]:
 
-def _with_timing(fn, msg, silent=False):
-
-  def fn_with_timing(*args, **kwargs):
-    start_time = time.time()
-    res = fn(*args, **kwargs)
+  def fn_with_timing(*args: Any, **kwargs: Any) -> Any:
+    start_time: float = time.time()
+    res: Any = fn(*args, **kwargs)
     if not silent:
       log_info("Doing %s took %.3f sec." % (msg, time.time() - start_time))
     return res
@@ -2007,9 +2007,9 @@ def _with_timing(fn, msg, silent=False):
   return fn_with_timing
 
 
-def create_dummy_vars():
+def create_dummy_vars() -> None:
   """Dummy vars for restore to work when not using TPU codepath."""
-  var_names = set([v.name for v in tf.global_variables()])
+  var_names: Set[str] = set([v.name for v in tf.global_variables()])
   if "losses_avg/problem_0/total_loss:0" in var_names:
     return
   with tf.variable_scope("losses_avg"):
@@ -2022,7 +2022,7 @@ def create_dummy_vars():
 
 
 # These metrics are implemented with py_funcs and therefore do no work with TPU
-TPU_METRIC_BLACKLIST = set([
+TPU_METRIC_BLACKLIST: Set[str] = set([
     metrics.Metrics.APPROX_BLEU,
     metrics.Metrics.ROUGE_2_F,
     metrics.Metrics.ROUGE_L_F,
@@ -2030,33 +2030,33 @@ TPU_METRIC_BLACKLIST = set([
 ])
 
 
-def create_tpu_eval_metrics_fn(problem, model_hparams):
+def create_tpu_eval_metrics_fn(problem: Any, model_hparams: Any) -> Callable[..., Dict[str, Tuple[tf.Tensor, tf.Tensor]]]:
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
-  def reduce_dimensions(predictions, labels):
+  def reduce_dimensions(predictions: tf.Tensor, labels: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
     """Reduce dimensions for high-dimensional predictions and labels."""
     if len(predictions.get_shape()) > 5:
-      predictions_shape = common_layers.shape_list(predictions)
+      predictions_shape: List[int] = common_layers.shape_list(predictions)
       predictions = tf.reshape(
           predictions, [predictions_shape[0], predictions_shape[1], -1,
                         predictions_shape[-1]])
-      labels_shape = common_layers.shape_list(labels)
+      labels_shape: List[int] = common_layers.shape_list(labels)
       labels = tf.reshape(
           labels, [labels_shape[0], labels_shape[1], -1])
     return predictions, labels
 
-  metric_fns = []
-  eval_metrics = problem.eval_metric_fns(model_hparams)
+  metric_fns: List[Tuple[str, Callable[..., Tuple[tf.Tensor, tf.Tensor]]]] = []
+  eval_metrics: Dict[str, Callable[..., Tuple[tf.Tensor, tf.Tensor]]] = problem.eval_metric_fns(model_hparams)
 
-  tm = _create_target_modality(problem.get_hparams(model_hparams).modality)
+  tm: Union[Dict[str, Any], Any] = _create_target_modality(problem.get_hparams(model_hparams).modality)
   if isinstance(tm, dict):
     for k, v in six.iteritems(tm):
-      weights_fn = modalities.get_weights_fn(v)
+      weights_fn: Callable[..., tf.Tensor] = modalities.get_weights_fn(v)
 
-      def make_metric_fn(metric_fn):
+      def make_metric_fn(metric_fn: Callable[..., Tuple[tf.Tensor, tf.Tensor]]) -> Callable[..., Tuple[tf.Tensor, tf.Tensor]]:
         """returns a metric_fn."""
-        def wrapped_metric_fn(logits, labels, features, weights_fn=weights_fn):
-          kwargs = {}
+        def wrapped_metric_fn(logits: tf.Tensor, labels: tf.Tensor, features: Dict[str, tf.Tensor], weights_fn: Callable[..., tf.Tensor] = weights_fn) -> Tuple[tf.Tensor, tf.Tensor]:
+          kwargs: Dict[str, Any] = {}
           args, _, keywords, _ = inspect.getargspec(metric_fn)
           if ("features" in args) or keywords:
             kwargs["features"] = features
@@ -2071,15 +2071,15 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
         if metric in TPU_METRIC_BLACKLIST:
           log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
           continue
-        name = "%s/metrics-%s/%s" % (k, problem.name, metric)
+        name: str = "%s/metrics-%s/%s" % (k, problem.name, metric)
         metric_fns.append((name, make_metric_fn(metric_fn)))
   else:
-    weights_fn = modalities.get_weights_fn(tm)
+    weights_fn: Callable[..., tf.Tensor] = modalities.get_weights_fn(tm)
 
-    def make_metric_fn(metric_fn):
+    def make_metric_fn(metric_fn: Callable[..., Tuple[tf.Tensor, tf.Tensor]]) -> Callable[..., Tuple[tf.Tensor, tf.Tensor]]:
       """returns a metric fn."""
-      def wrapped_metric_fn(logits, labels, features):
-        kwargs = {}
+      def wrapped_metric_fn(logits: tf.Tensor, labels: tf.Tensor, features: Dict[str, tf.Tensor]) -> Tuple[tf.Tensor, tf.Tensor]:
+        kwargs: Dict[str, Any] = {}
         args, _, keywords, _ = inspect.getargspec(metric_fn)
         if ("features" in args) or keywords:
           kwargs["features"] = features
@@ -2094,21 +2094,21 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
       if metric in TPU_METRIC_BLACKLIST:
         log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
         continue
-      name = "metrics-%s/%s" % (problem.name, metric)
+      name: str = "metrics-%s/%s" % (problem.name, metric)
       metric_fns.append((name, make_metric_fn(metric_fn)))
 
-  def all_metrics_fn(**kwargs):
+  def all_metrics_fn(**kwargs: Any) -> Dict[str, Tuple[tf.Tensor, tf.Tensor]]:
     """Construct metrics dictionary."""
 
-    original_kwargs = _unflatten_dict(kwargs, prefixes=["logits", "features"])
+    original_kwargs: Dict[str, Any] = _unflatten_dict(kwargs, prefixes=["logits", "features"])
     del kwargs
 
-    logits = original_kwargs["logits"]
-    labels = original_kwargs["labels"]
-    features = original_kwargs["features"]
+    logits: Union[tf.Tensor, Dict[str, tf.Tensor]] = original_kwargs["logits"]
+    labels: Union[tf.Tensor, Dict[str, tf.Tensor]] = original_kwargs["labels"]
+    features: Dict[str, tf.Tensor] = original_kwargs["features"]
     del original_kwargs
 
-    metrics_dict = {}
+    metrics_dict: Dict[str, Tuple[tf.Tensor, tf.Tensor]] = {}
 
     for name, fn in metric_fns:
       if isinstance(logits, dict) and isinstance(labels, dict):
@@ -2126,8 +2126,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
 
   return all_metrics_fn
 
-
-def remove_summaries():
+def remove_summaries() -> None:
   """Remove summaries from the default graph."""
   g = tf.get_default_graph()
   key = tf.GraphKeys.SUMMARIES
@@ -2136,7 +2135,7 @@ def remove_summaries():
   assert not g.get_collection(key)
 
 
-def create_host_call(model_dir):
+def create_host_call(model_dir: str) -> Tuple[Callable, Dict[str, tf.Tensor]]:
   """Construct a host_call writing scalar summaries.
 
   Args:
@@ -2148,7 +2147,7 @@ def create_host_call(model_dir):
   graph = tf.get_default_graph()
   summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
   gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
-  summary_kwargs = collections.OrderedDict()
+  summary_kwargs: Dict[str, tf.Tensor] = collections.OrderedDict()
   for t in summaries:
     # TODO(aidangomez): enable ImageSummary support when we have a faster method
     # see @shibow's comment in cl/202344570
@@ -2182,7 +2181,7 @@ def create_host_call(model_dir):
   summary_kwargs["global_step"] = gs_t
   log_info("summary_kwargs %s" % str(summary_kwargs))
 
-  def host_call_fn(**kwargs):
+  def host_call_fn(**kwargs: Dict[str, tf.Tensor]) -> List[tf.Operation]:
     """Training host call. Creates summaries for training metrics.
 
     Args:
@@ -2210,7 +2209,7 @@ def create_host_call(model_dir):
   return (host_call_fn, summary_kwargs)
 
 
-def _del_dict_non_tensors(d):
+def _del_dict_non_tensors(d: Dict[str, Any]) -> None:
   for k in list(d.keys()):
     if not isinstance(d[k], tf.Tensor):
       del d[k]
@@ -2219,18 +2218,18 @@ def _del_dict_non_tensors(d):
 class DummyVariableStore(object):
 
   @contextlib.contextmanager
-  def as_default(self):
+  def as_default(self) -> Iterator[None]:
     yield
 
 
-def create_eager_var_store():
+def create_eager_var_store() -> Union[variable_scope.EagerVariableStore, DummyVariableStore]:
   if tf.executing_eagerly():
     return variable_scope.EagerVariableStore()
   else:
     return DummyVariableStore()
 
 
-def average_sharded_losses(sharded_losses):
+def average_sharded_losses(sharded_losses: List[Dict[str, Union[tf.Tensor, Tuple[tf.Tensor, tf.Tensor]]]]) -> Dict[str, tf.Tensor]:
   """Average losses across datashards.
 
   Args:
@@ -2255,7 +2254,7 @@ def average_sharded_losses(sharded_losses):
   return losses
 
 
-def summarize_features(features, num_shards=1):
+def summarize_features(features: Dict[str, tf.Tensor], num_shards: int = 1) -> None:
   """Generate summaries for features."""
   if not common_layers.should_generate_summaries():
     return
@@ -2276,26 +2275,26 @@ def summarize_features(features, num_shards=1):
 _already_logged = set()
 
 
-def _eager_log(level, *args):
+def _eager_log(level: str, *args: Any) -> None:
   if tf.executing_eagerly() and args in _already_logged:
     return
   _already_logged.add(args)
   getattr(tf.logging, level)(*args)
 
 
-def log_debug(*args):
+def log_debug(*args: Any) -> None:
   _eager_log("debug", *args)
 
 
-def log_info(*args):
+def log_info(*args: Any) -> None:
   _eager_log("info", *args)
 
 
-def log_warn(*args):
+def log_warn(*args: Any) -> None:
   _eager_log("warn", *args)
 
 
-def _compose_custom_getters(getter_a, getter_b):
+def _compose_custom_getters(getter_a: Optional[Callable], getter_b: Optional[Callable]) -> Callable:
   """Compose two custom getters.
 
   Example use:
@@ -2317,13 +2316,13 @@ def _compose_custom_getters(getter_a, getter_b):
   if not getter_b:
     return getter_a
 
-  def getter_fn(getter, *args, **kwargs):
+  def getter_fn(getter: Callable, *args: Any, **kwargs: Any) -> Any:
     return getter_b(functools.partial(getter_a, getter), *args, **kwargs)
 
   return getter_fn
 
 
-def set_custom_getter_compose(custom_getter):
+def set_custom_getter_compose(custom_getter: Callable) -> None:
   """Set a custom getter in the current variable scope.
 
   Do not overwrite the existing custom getter - rather compose with it.
@@ -2336,7 +2335,7 @@ def set_custom_getter_compose(custom_getter):
                               custom_getter))
 
 
-def _create_target_modality(modality_dict):
+def _create_target_modality(modality_dict: Dict[str, Any]) -> Dict[str, Any]:
   # TODO(trandustin): We require this in order to apply methods utilized
   # differently for modalities which are "targets"
   # (e.g., modality.target_bottom). In the future, remove need for this
@@ -2345,7 +2344,7 @@ def _create_target_modality(modality_dict):
           and k != "targets_segmentation" and k != "targets_position"}
 
 
-def initialize_from_ckpt(ckpt_dir, hparams):
+def initialize_from_ckpt(ckpt_dir: str, hparams: Any) -> None:
   """Initialize variables from given directory."""
   model_dir = hparams.get("model_dir", None)
   already_has_ckpt = (
